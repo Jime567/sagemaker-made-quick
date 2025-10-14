@@ -32,7 +32,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1   # Change if needed
+          aws-region: us-east-1
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v2
@@ -45,52 +45,46 @@ jobs:
       # ---------------------------------------------------------------
       # DEPLOY ACTION
       # ---------------------------------------------------------------
-      - name: Terraform Fmt (Deploy only)
+      - name: Terraform Fmt
         if: github.event.inputs.action == 'deploy' || github.event.inputs.action == 'deploy (Start JupyterLab)'
         run: terraform fmt -check
 
-      - name: Terraform Plan (Deploy only)
+      - name: Terraform Plan
         if: github.event.inputs.action == 'deploy' || github.event.inputs.action == 'deploy (Start JupyterLab)'
         run: terraform plan -out=tfplan.binary
 
-      - name: Terraform Apply (Deploy only)
+      - name: Terraform Apply
         if: github.event.inputs.action == 'deploy' || github.event.inputs.action == 'deploy (Start JupyterLab)'
         run: terraform apply -auto-approve tfplan.binary
 
-
-        # ---------------------------------------------------------------
-        # Automatically start JupyterLab after deployment
-        # ---------------------------------------------------------------
-
-      - name: Start SageMaker JupyterLab (Deploy only)
+      # Capture the Terraform output for JupyterLab startup
+      - name: Get Terraform outputs
         if: github.event.inputs.action == 'deploy (Start JupyterLab)'
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+        id: tf_outputs
+        run: |
+          echo "user_profile_name=$(terraform output -raw user_profile_name)" >> $GITHUB_OUTPUT
+          echo "domain_id=$(terraform output -raw domain_id)" >> $GITHUB_OUTPUT
 
-      - name: Install boto3
+      # ---------------------------------------------------------------
+      # Automatically start JupyterLab after deployment
+      # ---------------------------------------------------------------
+      - name: Install AWS CLI
         if: github.event.inputs.action == 'deploy (Start JupyterLab)'
-        run: pip install boto3
-      
-      - name: Upgrade boto3 to latest
-        run: pip install --upgrade boto3 botocore
-      
-      - name: Start JupyterLab via API
+        run: pip install awscli
+
+      - name: Start SageMaker JupyterLab App
         if: github.event.inputs.action == 'deploy (Start JupyterLab)'
         run: |
-          python - <<EOF
-          import boto3
-          sm = boto3.client("sagemaker", region_name="us-east-1")
-          sm.start_app(
-              DomainId="${{ secrets.SAGEMAKER_DOMAIN_ID }}",
-              UserProfileName="${{ steps.terraform.outputs.user_profile_name }}",
-              AppType="JupyterServer",
-              AppName="default"
-          )
-          EOF
+          aws sagemaker create_app \
+            --domain-id ${{ steps.tf_outputs.outputs.domain_id }} \
+            --user-profile-name ${{ steps.tf_outputs.outputs.user_profile_name }} \
+            --app-type JupyterServer \
+            --app-name default
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+
       # ---------------------------------------------------------------
       # DESTROY ACTION
       # ---------------------------------------------------------------
@@ -102,8 +96,7 @@ jobs:
 
       - name: Install cleanup dependencies (Destroy only)
         if: github.event.inputs.action == 'destroy' || github.event.inputs.action == 'destroy (with retry-delete, requires PAT_TOKEN secret)'
-        run: |
-          pip install boto3 sagemaker
+        run: pip install boto3 sagemaker
 
       - name: Run SageMaker cleanup script (Destroy only)
         if: github.event.inputs.action == 'destroy' || github.event.inputs.action == 'destroy (with retry-delete, requires PAT_TOKEN secret)'
@@ -131,4 +124,3 @@ jobs:
         with:
           event-type: delete-mlflow
           token: ${{ secrets.PAT_TOKEN }}
-
