@@ -15,7 +15,6 @@ resource "aws_sagemaker_studio_lifecycle_config" "clone_repo" {
   studio_lifecycle_config_name     = "clone-repo"
   studio_lifecycle_config_app_type = "JupyterLab"
 
-  # Base64-encode the lifecycle script explicitly
   studio_lifecycle_config_content = base64encode(<<-EOF
     #!/bin/bash
     set -ex
@@ -31,64 +30,44 @@ resource "aws_sagemaker_studio_lifecycle_config" "clone_repo" {
 
     # Skip lifecycle config if running in SageMaker Job mode
     if [ ! -z "$SM_JOB_DEF_VERSION" ]; then
-      echo "Running in job mode, skipping lifecycle config"
+       echo "Running in job mode, skipping lifecycle config"
     else
-      # -------------------------------
-      # Install TeXLive packages for PDF export in Jupyter
-      # -------------------------------
-      sudo apt update
-      sudo apt install -y texlive-xetex texlive-fonts-recommended texlive-latex-extra
+       # Install TeXLive packages
+       sudo apt update
+       sudo apt install -y texlive-xetex texlive-fonts-recommended texlive-latex-extra
 
-      # -------------------------------
-      # Clone repositories if they don't exist
-      # -------------------------------
-      REPO_DIRS=(
-          "sagemaker-made-quick"
-          "amazon-sagemaker-from-idea-to-production"
-      )
+       # Clone repos if they don't exist
+       REPO_DIRS=("sagemaker-made-quick" "amazon-sagemaker-from-idea-to-production")
+       REPO_URLS=("https://github.com/Jime567/sagemaker-made-quick.git" "https://github.com/aws-samples/amazon-sagemaker-from-idea-to-production.git")
 
-      REPO_URLS=(
-          "https://github.com/Jime567/sagemaker-made-quick.git"
-          "https://github.com/aws-samples/amazon-sagemaker-from-idea-to-production.git"
-      )
+       for i in $(seq 0 $((${#REPO_DIRS[@]} - 1))); do
+           DIR="${REPO_DIRS[$i]}"
+           URL="${REPO_URLS[$i]}"
 
-      for i in "${!REPO_DIRS[@]}"; do
-          DIR="${REPO_DIRS[$i]}"
-          URL="${REPO_URLS[$i]}"
+           if [ ! -d "/home/sagemaker-user/$DIR" ]; then
+               git clone "$URL" "/home/sagemaker-user/$DIR" || {
+                   echo "Error: Failed to clone $DIR, continuing..."
+               }
+               echo "Repository cloned: $DIR"
+           else
+               echo "Repository already exists: $DIR"
+           fi
+       done
 
-          if [ ! -d "/home/sagemaker-user/$DIR" ]; then
-              git clone "$URL" "/home/sagemaker-user/$DIR" || {
-                  echo "Error: Failed to clone $DIR, continuing..."
-              }
-              echo "Repository cloned: $DIR"
-          else
-              echo "Repository already exists: $DIR"
-          fi
-      done
-
-      # -------------------------------
-      # Install Python dependencies for notebooks
-      # -------------------------------
-      cd /home/sagemaker-user/amazon-sagemaker-from-idea-to-production/
-      if [ -f requirements.txt ]; then
-          pip install --user -r requirements.txt
-      fi
-
-      # -------------------------------
-      # Execute the 00-start-here notebook
-      # -------------------------------
-      if [ -f "00-start-here.ipynb" ]; then
-          jupyter nbconvert --to notebook --execute 00-start-here.ipynb --inplace || {
-              echo "Warning: Notebook execution failed, continuing..."
-          }
-          echo "Notebook 00-start-here.ipynb executed."
-      else
-          echo "Notebook 00-start-here.ipynb not found, skipping execution."
-      fi
+       # Execute notebook
+       cd /home/sagemaker-user/amazon-sagemaker-from-idea-to-production/
+       if [ -f "00-start-here.ipynb" ]; then
+           jupyter nbconvert --to notebook --execute 00-start-here.ipynb --inplace || {
+               echo "Warning: Notebook execution failed, continuing..."
+           }
+           echo "Notebook 00-start-here.ipynb executed."
+       fi
     fi
   EOF
   )
 }
+
+
 
 
 
