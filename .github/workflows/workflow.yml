@@ -71,7 +71,10 @@ jobs:
       - name: Install boto3
         if: github.event.inputs.action == 'deploy (Start JupyterLab)'
         run: pip install boto3
-
+      
+      - name: Upgrade boto3 to latest
+        run: pip install --upgrade boto3 botocore
+      
       - name: Start JupyterLab via API
         if: github.event.inputs.action == 'deploy (Start JupyterLab)'
         run: |
