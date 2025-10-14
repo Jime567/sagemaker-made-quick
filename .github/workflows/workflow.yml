@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - deploy
+          - deploy (Start JupyterLab)
           - destroy
           - destroy (with retry-delete, requires PAT_TOKEN secret)
 
@@ -45,17 +46,48 @@ jobs:
       # DEPLOY ACTION
       # ---------------------------------------------------------------
       - name: Terraform Fmt (Deploy only)
-        if: github.event.inputs.action == 'deploy'
+        if: github.event.inputs.action == 'deploy' || github.event.inputs.action == 'deploy (Start JupyterLab)'
         run: terraform fmt -check
 
       - name: Terraform Plan (Deploy only)
-        if: github.event.inputs.action == 'deploy'
+        if: github.event.inputs.action == 'deploy' || github.event.inputs.action == 'deploy (Start JupyterLab)'
         run: terraform plan -out=tfplan.binary
 
       - name: Terraform Apply (Deploy only)
-        if: github.event.inputs.action == 'deploy'
+        if: github.event.inputs.action == 'deploy' || github.event.inputs.action == 'deploy (Start JupyterLab)'
         run: terraform apply -auto-approve tfplan.binary
 
+
+        # ---------------------------------------------------------------
+        # Automatically start JupyterLab after deployment
+        # ---------------------------------------------------------------
+
+      - name: Start SageMaker JupyterLab (Deploy only)
+        if: github.event.inputs.action == 'deploy (Start JupyterLab)'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install boto3
+        if: github.event.inputs.action == 'deploy (Start JupyterLab)'
+        run: pip install boto3
+
+      - name: Start JupyterLab via API
+        if: github.event.inputs.action == 'deploy (Start JupyterLab)'
+        run: |
+          python - <<EOF
+          import boto3
+          sm = boto3.client("sagemaker", region_name="us-east-1")
+          sm.start_app(
+              DomainId="${{ secrets.SAGEMAKER_DOMAIN_ID }}",
+              UserProfileName="${{ steps.terraform.outputs.user_profile_name }}",
+              AppType="JupyterServer",
+              AppName="default"
+          )
+          EOF
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       # ---------------------------------------------------------------
       # DESTROY ACTION
       # ---------------------------------------------------------------

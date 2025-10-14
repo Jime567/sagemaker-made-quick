@@ -25,41 +25,66 @@ resource "aws_sagemaker_studio_lifecycle_config" "clone_repo" {
     # starts (unless in Job mode) and does the following:
     # 1. Installs LaTeX packages required for PDF export
     # 2. Clones the GitHub repositories if they don't exist
+    # 3. Installs Python dependencies for notebooks
+    # 4. Executes 00-start-here.ipynb
     # =========================================================
 
     # Skip lifecycle config if running in SageMaker Job mode
-    if [ ! -z "$${SM_JOB_DEF_VERSION}" ]; then
-       echo "Running in job mode, skipping lifecycle config"
+    if [ ! -z "$SM_JOB_DEF_VERSION" ]; then
+      echo "Running in job mode, skipping lifecycle config"
     else
-       # -------------------------------
-       # Install TeXLive packages for PDF export in Jupyter
-       # -------------------------------
-       sudo apt update
-       sudo apt install -y texlive-xetex texlive-fonts-recommended texlive-latex-extra
+      # -------------------------------
+      # Install TeXLive packages for PDF export in Jupyter
+      # -------------------------------
+      sudo apt update
+      sudo apt install -y texlive-xetex texlive-fonts-recommended texlive-latex-extra
 
-       # -------------------------------
-       # Clone repositories if they don't exist
-       # -------------------------------
+      # -------------------------------
+      # Clone repositories if they don't exist
+      # -------------------------------
+      REPO_DIRS=(
+          "sagemaker-made-quick"
+          "amazon-sagemaker-from-idea-to-production"
+      )
 
-       if [ ! -d "/home/sagemaker-user/sagemaker-made-quick" ]; then
-         git clone https://github.com/Jime567/sagemaker-made-quick.git || {
-           echo "Error: Failed to clone repository"
-           exit 0
-         }
-         echo "Repository successfully cloned: sagemaker-made-quick"
-       else
-         echo "Repository already exists, skipping clone: sagemaker-made-quick"
-       fi
+      REPO_URLS=(
+          "https://github.com/Jime567/sagemaker-made-quick.git"
+          "https://github.com/aws-samples/amazon-sagemaker-from-idea-to-production.git"
+      )
 
-       if [ ! -d "/home/sagemaker-user/amazon-sagemaker-from-idea-to-production" ]; then
-         git clone https://github.com/aws-samples/amazon-sagemaker-from-idea-to-production.git || {
-           echo "Error: Failed to clone repository"
-           exit 0
-         }
-         echo "Repository successfully cloned: amazon-sagemaker-from-idea-to-production"
-       else
-         echo "Repository already exists, skipping clone: amazon-sagemaker-from-idea-to-production"
-       fi
+      for i in "${!REPO_DIRS[@]}"; do
+          DIR="${REPO_DIRS[$i]}"
+          URL="${REPO_URLS[$i]}"
+
+          if [ ! -d "/home/sagemaker-user/$DIR" ]; then
+              git clone "$URL" "/home/sagemaker-user/$DIR" || {
+                  echo "Error: Failed to clone $DIR, continuing..."
+              }
+              echo "Repository cloned: $DIR"
+          else
+              echo "Repository already exists: $DIR"
+          fi
+      done
+
+      # -------------------------------
+      # Install Python dependencies for notebooks
+      # -------------------------------
+      cd /home/sagemaker-user/amazon-sagemaker-from-idea-to-production/
+      if [ -f requirements.txt ]; then
+          pip install --user -r requirements.txt
+      fi
+
+      # -------------------------------
+      # Execute the 00-start-here notebook
+      # -------------------------------
+      if [ -f "00-start-here.ipynb" ]; then
+          jupyter nbconvert --to notebook --execute 00-start-here.ipynb --inplace || {
+              echo "Warning: Notebook execution failed, continuing..."
+          }
+          echo "Notebook 00-start-here.ipynb executed."
+      else
+          echo "Notebook 00-start-here.ipynb not found, skipping execution."
+      fi
     fi
   EOF
   )
